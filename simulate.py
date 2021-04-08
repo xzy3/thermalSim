@@ -15,7 +15,7 @@ def RK4_step(f, dt, y):
     k2 = f(dt/2, y+dt*k1/2)
     k3 = f(dt/2, y+dt*k2/2)
     k4 = f(2*dt, y+dt*k3)
-    return y + dt/6*fsum(k1+k2+k3+k4)
+    return y + dt/6*(k1+k2+k3+k4)
 
 # some standard conductivity constants in W/cm K
 class CONDUCTIVITY_CONSTANTS(Enum):
@@ -39,7 +39,7 @@ class TEC:
         thermal_resistance = (2*T_h*self.delta_T_max)/(self.voltage_max*self.current_max*delta_T)
         electrical_resistance = (self.voltage_max*delta_T)/(self.current_max*T_h)
 
-        delta_T = T_h - T_c 
+        delta_T = T_h - T_c
         I = v_cur / electrical_resistance
         tmp = delta_T/thermal_resistance - (I**2*electrical_resistance)/2
         Q_c = seebeck_coef*T_c*I - tmp
@@ -132,7 +132,7 @@ if __name__ == '__main__':
 #        ambient=30)
 #    wb1 = water_block()
 #    wb2 = water_block()
-#    tec = TEC( 
+#    tec = TEC(
 #        hot_side=wb1,
 #        cold_side=wb2)
 #    fc = fluid_circuit(
@@ -158,7 +158,7 @@ if __name__ == '__main__':
         rho_water = 0.999395 # g/mL
         rho_air = 0.0011644 # g/mL @30C
         T_amb = 30 # C
-      
+
     class radiator:
         h = 30
         A = 2.5 # mL (guess)
@@ -186,7 +186,7 @@ if __name__ == '__main__':
         R_m = Vmax*(Th_abs-dTmax)/(Imax*Th_abs)
         #I = min(V/R_m, Imax*0.6)
         delta_T = Th_abs - Tc_abs
-        I = max((a_m*Tc_abs)/R_m, 0.1*Imax)
+        I = max((theta_m*delta_T)/(a_m*Tc_abs), 0.1*Imax)
         return a_m*Th_abs*I-delta_T/theta_m+(I*I*R_m)/2
 
     def TEC_Qc(Vmax, dTmax, Imax, Th, Tc, V):
@@ -197,40 +197,36 @@ if __name__ == '__main__':
         R_m = Vmax*(Th_abs-dTmax)/(Imax*Th_abs)
         #I = min(V/R_m, Imax*0.6)
         delta_T = Th_abs - Tc_abs
-        I = max((a_m*Tc_abs)/R_m, 0.1*Imax)
+        I = max((theta_m*delta_T)/(a_m*Tc_abs), 0.1*Imax)
         return a_m*Tc_abs*I-delta_T/theta_m-(I*I*R_m)/2
 
     TEC_Qh_1 = partial(TEC_Qh, 15.4, 68, 2.5)
     TEC_Qc_1 = partial(TEC_Qc, 15.4, 68, 2.5)
 
-    y0 = np.array([30.0]*21)
+    y0 = np.array([30.0]*17)
     def f(t, y):
-        ret = np.zeros(21)
+        ret = np.zeros(len(y))
         window = np.array([1/2]*2)
-        Th_avg = np.convolve(y[3:13], window, 'valid')
+        Th_avg = np.convolve(y[3:9], window, 'valid')
         Tc_avg = np.convolve(y.take(range(0,-6,-1), mode='wrap'), window, 'valid')
         ret += np.array([
             0,
             -radiator.h*radiator.A*(y[1]-y[0])/(3*radiator.fluid_mass), # J/g
             -radiator.h*radiator.A*(y[2]-y[0])/(3*radiator.fluid_mass), # J/g
             -radiator.h*radiator.A*(y[3]-y[0])/(3*radiator.fluid_mass), # J/g
-            TEC_Qh_1(Th_avg[0], Tc_avg[0], 15.4) / water_block.fluid_mass, # J/g
-            -radiator.h*radiator.A*(y[5]-const.T_amb)/(3*radiator.fluid_mass), # J/g
-            TEC_Qh_1(Th_avg[2], Tc_avg[1], 15.4) / water_block.fluid_mass, # J/g
-            -radiator.h*radiator.A*(y[6]-const.T_amb)/(3*radiator.fluid_mass), # J/g
-            TEC_Qh_1(Th_avg[4], Tc_avg[2], 15.4) / water_block.fluid_mass, # J/g
-            -radiator.h*radiator.A*(y[8]-const.T_amb)/(3*radiator.fluid_mass), # J/g
-            TEC_Qh_1(Th_avg[6], Tc_avg[3], 15.4) / water_block.fluid_mass, # J/g
+            TEC_Qh_1(y[4], y[-1], 15.4) / water_block.fluid_mass, # J/g
+            TEC_Qh_1(y[5], y[-2], 15.4) / water_block.fluid_mass, # J/g
+            TEC_Qh_1(y[6], y[-3], 15.4) / water_block.fluid_mass, # J/g
+            TEC_Qh_1(y[7], y[-4], 15.4) / water_block.fluid_mass, # J/g
+            TEC_Qh_1(y[8], y[-5], 15.4) / water_block.fluid_mass, # J/g
+            pump.specific_power_2_water-radiator.h*radiator.A*(y[9]+pump.temp_rise-const.T_amb)/(3*radiator.fluid_mass), # J/g
             -radiator.h*radiator.A*(y[10]-const.T_amb)/(3*radiator.fluid_mass), # J/g
-            TEC_Qh_1(Th_avg[8], Tc_avg[4], 15.4) / water_block.fluid_mass, # J/g
-            pump.specific_power_2_water-radiator.h*radiator.A*(y[13]+pump.temp_rise-const.T_amb)/(3*radiator.fluid_mass), # J/g
-            -radiator.h*radiator.A*(y[14]-const.T_amb)/(3*radiator.fluid_mass), # J/g
-            -radiator.h*radiator.A*(y[15]-const.T_amb)/(3*radiator.fluid_mass), # J/g
-            -TEC_Qc_1(Th_avg[0], Tc_avg[0], 15.4) / water_block.fluid_mass, # J/g
-            -TEC_Qc_1(Th_avg[2], Tc_avg[1], 15.4) / water_block.fluid_mass, # J/g
-            -TEC_Qc_1(Th_avg[4], Tc_avg[2], 15.4) / water_block.fluid_mass, # J/g
-            -TEC_Qc_1(Th_avg[5], Tc_avg[3], 15.4) / water_block.fluid_mass, # J/g
-            -TEC_Qc_1(Th_avg[8], Tc_avg[4], 15.4) / water_block.fluid_mass, # J/g
+            -radiator.h*radiator.A*(y[11]-const.T_amb)/(3*radiator.fluid_mass), # J/g
+            -TEC_Qc_1(y[8], y[-5], 15.4) / water_block.fluid_mass, # J/g
+            -TEC_Qc_1(y[7], y[-4], 15.4) / water_block.fluid_mass, # J/g
+            -TEC_Qc_1(y[6], y[-3], 15.4) / water_block.fluid_mass, # J/g
+            -TEC_Qc_1(y[5], y[-2], 15.4) / water_block.fluid_mass, # J/g
+            -TEC_Qc_1(y[4], y[-1], 15.4) / water_block.fluid_mass, # J/g
         ])
         cooling = -(np.sum(ret[1:3])*radiator.fluid_mass)/(45000*const.Cp_air*const.rho_air)
 
@@ -239,27 +235,21 @@ if __name__ == '__main__':
         ret[0] = cooling
         return ret
 
-    import ipdb
-    dt = 0.000001
+    dt = 0.0001
     y = y0
     t = 0
     while True:
         try:
             t += 1
-            yn = f(t, y)
-            yn1 = y + yn*dt
-            y += dt/2*(yn+f(t+1, yn1))
+            y = RK4_step(f, dt, y)
             if t % 10000 == 0:
                 print(round(t*dt,2), '='*10)
                 print('fridge temp', y[0])
 
-                window = np.array([1/2]*2)
-                Th_avg = np.convolve(y[3:13], window, 'valid')
-                Tc_avg = np.convolve(y.take(range(0,-6,-1), mode='wrap'), window, 'valid')
-                print('Th - Tc', Th_avg[0::2] - Tc_avg[-1:-6:-1])
+                print('Th - Tc', y[4:9] - y[-1:-6:-1])
                 print('coling max', y[-1])
                 print(y)
 
         except KeyboardInterrupt as ex:
-            ipdb.set_trace()
+            pdb.set_trace()
             pass
